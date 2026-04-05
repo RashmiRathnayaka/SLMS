@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../../api/axios';
 import { toast } from 'react-toastify';
 
 const COLORS = ['#4f46e5', '#ef4444', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6'];
+const AVAILABILITY_COLORS = ['#10b981', '#ef4444'];
 
 const Analytics = () => {
   const [data, setData] = useState(null);
@@ -18,6 +19,41 @@ const Analytics = () => {
 
   if (loading) return <div className="page-wrapper"><div className="spinner" /></div>;
   if (!data) return <div className="page-wrapper"><div className="empty-state"><div className="empty-state-icon">📊</div><p>No data available.</p></div></div>;
+
+  const availabilityData = (data.availability || []).map(item => ({
+    ...item,
+    value: Number(item.value) || 0,
+  }));
+  const totalAvailability = availabilityData.reduce((sum, item) => sum + item.value, 0);
+  const availableItem = availabilityData.find(item => item.name?.toLowerCase() === 'available');
+  const availableRate = totalAvailability > 0
+    ? Math.round(((availableItem?.value || 0) / totalAvailability) * 100)
+    : 0;
+  const categoryChartData = [...(data.categoryData || [])]
+    .sort((a, b) => b.count - a.count);
+
+  const renderAvailabilityTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const item = payload[0];
+    const pct = totalAvailability > 0 ? Math.round((item.value / totalAvailability) * 100) : 0;
+    return (
+      <div style={{ background: '#f0f4f8', border: '1px solid #cdd5e0', borderRadius: 8, padding: '0.5rem 0.7rem', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)' }}>
+        <div style={{ fontSize: '0.75rem', color: '#475569', marginBottom: 2 }}>{item.name}</div>
+        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b' }}>{item.value} copies ({pct}%)</div>
+      </div>
+    );
+  };
+
+  const renderCategoryTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const item = payload[0];
+    return (
+      <div style={{ background: '#f0f4f8', border: '1px solid #cdd5e0', borderRadius: 8, padding: '0.5rem 0.7rem', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)' }}>
+        <div style={{ fontSize: '0.75rem', color: '#475569', marginBottom: 2 }}>{item.payload.name}</div>
+        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b' }}>{item.value} books</div>
+      </div>
+    );
+  };
 
   const statItems = [
     { label: 'Total Titles', value: data.totalBooks, variant: 'primary', icon: '📚' },
@@ -52,27 +88,71 @@ const Analytics = () => {
         <div className="card">
           <div className="card-header"><span className="card-title">Book Availability</span></div>
           <div className="card-body">
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie data={data.availability} cx="50%" cy="50%" outerRadius={100} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
-                  {data.availability.map((_, i) => <Cell key={i} fill={i === 0 ? '#10b981' : '#ef4444'} />)}
-                </Pie>
-                <Tooltip /><Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ position: 'relative' }}>
+              <ResponsiveContainer width="100%" height={290}>
+                <PieChart>
+                  <Pie
+                    data={availabilityData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={64}
+                    outerRadius={106}
+                    paddingAngle={3}
+                    dataKey="value"
+                    stroke="rgba(255,255,255,0.95)"
+                    strokeWidth={2}
+                  >
+                    {availabilityData.map((_, i) => <Cell key={i} fill={AVAILABILITY_COLORS[i % AVAILABILITY_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={renderAvailabilityTooltip} />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>{availableRate}%</div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>Availability Rate</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: '0.45rem', marginTop: '0.35rem' }}>
+              {availabilityData.map((item, index) => {
+                const pct = totalAvailability > 0 ? Math.round((item.value / totalAvailability) * 100) : 0;
+                return (
+                  <div key={item.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.8rem', border: '1px solid var(--border)', borderRadius: 10, padding: '0.45rem 0.65rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 999, background: AVAILABILITY_COLORS[index % AVAILABILITY_COLORS.length] }} />
+                      <span style={{ fontSize: '0.84rem', color: 'var(--text)' }}>{item.name}</span>
+                    </div>
+                    <div style={{ minWidth: 90, textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      <strong style={{ color: 'var(--text)' }}>{item.value}</strong> ({pct}%)
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
         <div className="card">
           <div className="card-header"><span className="card-title">Books per Category</span></div>
           <div className="card-body">
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={data.categoryData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={categoryChartData} margin={{ top: 5, right: 20, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="name" angle={-45} textAnchor="end" interval={0} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {data.categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
+                  interval={0}
+                  angle={0}
+                  textAnchor="middle"
+                  height={28}
+                  tickFormatter={(value) => (value && value.length > 11 ? `${value.slice(0, 11)}...` : value)}
+                />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                <Tooltip content={renderCategoryTooltip} />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                  {categoryChartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
