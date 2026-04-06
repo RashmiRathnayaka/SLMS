@@ -127,6 +127,7 @@ const DamageReport = () => {
                       No currently borrowed books found.
                     </div>
                   ) : (
+                    //update book title auto fill
                     <select
                       className={`form-control${errors.bookTitle ? ' is-invalid' : ''}`}
                       value={form.bookTitle}
