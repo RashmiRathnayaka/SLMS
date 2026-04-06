@@ -53,6 +53,7 @@ const DamageReport = () => {
 
   const sf = (k, v) => { setForm(f => ({ ...f, [k]: v })); if (errors[k]) setErrors(p => ({ ...p, [k]: '' })); };
 
+  //add validations
   const validate = () => {
     const errs = {};
     if (!form.bookTitle.trim()) errs.bookTitle = 'Book title is required';
