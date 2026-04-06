@@ -2,7 +2,7 @@ const WaitingList = require('../models/WaitingList');
 const BorrowRequest = require('../models/BorrowRequest');
 const Book = require('../models/Book');
 
-// Helper: notify the next person in queue for a book and set their 24h claim window
+//  notify the next person in queue for a book and set their 24h claim window
 const notifyNext = async (bookId) => {
   const next = await WaitingList.findOne({ book: bookId, status: 'waiting' }).sort('position');
   if (!next) return null;
@@ -93,7 +93,7 @@ const claimBook = async (req, res) => {
   }
 };
 
-// @desc    Expire overdue notified entries and pass to next (called by cron)
+// @desc    Expire overdue notified entries and pass to next 
 // @route   POST /api/waiting/expire (internal / admin)
 const expireOverdue = async (req, res) => {
   try {
