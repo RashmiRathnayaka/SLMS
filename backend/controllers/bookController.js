@@ -10,6 +10,29 @@ const WaitingList = require('../models/WaitingList');
 const RECOMMEND_URGENT_THRESHOLD = 6;
 const RECOMMEND_HIGH_THRESHOLD = 3;
 
+const TRENDING_BORROW_WEIGHT = 3;
+const TRENDING_FAVORITE_WEIGHT = 2;
+const TRENDING_HISTORICAL_BORROW_WEIGHT = 0.25;
+
+const getCurrentWeekRange = (referenceDate = new Date()) => {
+  const start = new Date(referenceDate);
+  const day = start.getDay();
+  const mondayOffset = (day + 6) % 7;
+  start.setDate(start.getDate() - mondayOffset);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+
+  return { start, end };
+};
+
+const calculateTrendingScore = (weeklyBorrowCount, favoriteCount, borrowedCount) => Number((
+  (weeklyBorrowCount * TRENDING_BORROW_WEIGHT)
+  + (favoriteCount * TRENDING_FAVORITE_WEIGHT)
+  + ((borrowedCount || 0) * TRENDING_HISTORICAL_BORROW_WEIGHT)
+).toFixed(2));
+
 // @desc    Get all books
 // @route   GET /api/books
 const getBooks = async (req, res) => {
@@ -386,6 +409,9 @@ const getAnalytics = async (req, res) => {
 const toggleFavoriteBook = async (req, res) => {
   try {
     const bookId = req.params.id;
+    const targetBook = await Book.findOne({ _id: bookId, isActive: true }).select('_id');
+    if (!targetBook) return res.status(404).json({ message: 'Book not found' });
+
     // Check current state first
     const u = await User.findById(req.user._id).select('favoriteBooks');
     if (!u) return res.status(404).json({ message: 'User not found' });
@@ -397,6 +423,13 @@ const toggleFavoriteBook = async (req, res) => {
       isAlready ? { $pull: { favoriteBooks: bookId } } : { $addToSet: { favoriteBooks: bookId } },
       { new: true, select: 'favoriteBooks' }
     );
+
+    if (isAlready) {
+      await Book.updateOne({ _id: bookId, favoriteCount: { $gt: 0 } }, { $inc: { favoriteCount: -1 } });
+    } else {
+      await Book.updateOne({ _id: bookId }, { $inc: { favoriteCount: 1 } });
+    }
+
     res.json({ favorites: updated.favoriteBooks || [] });
   } catch (err) {
     console.error('toggleFavoriteBook:', err.message);
@@ -436,4 +469,97 @@ const getFavoriteBooks = async (req, res) => {
   }
 };
 
-module.exports = { getBooks, getBook, createBook, updateBook, deleteBook, importBooks, getAnalytics, toggleFavoriteBook, getFavoriteBooks, getRelatedBooks };
+// Recompute weekly trending metrics for all active books.
+const refreshWeeklyTrendingStats = async () => {
+  const { start: weekStart, end: weekEnd } = getCurrentWeekRange();
+
+  const weeklyBorrowAgg = await BorrowRequest.aggregate([
+    {
+      $match: {
+        status: { $in: ['approved', 'returned', 'overdue'] },
+      },
+    },
+    {
+      $addFields: {
+        trendDate: { $ifNull: ['$approvedDate', '$createdAt'] },
+      },
+    },
+    {
+      $match: {
+        trendDate: { $gte: weekStart, $lt: weekEnd },
+      },
+    },
+    { $group: { _id: '$book', count: { $sum: 1 } } },
+  ]);
+
+  const weeklyBorrowMap = {};
+  weeklyBorrowAgg.forEach((entry) => { weeklyBorrowMap[String(entry._id)] = entry.count; });
+
+  const activeBooks = await Book.find({ isActive: true })
+    .select('_id borrowedCount favoriteCount')
+    .lean();
+
+  if (activeBooks.length === 0) {
+    return { updated: 0, weekStart, weekEnd };
+  }
+
+  const updates = activeBooks.map((book) => {
+    const weeklyBorrowCount = weeklyBorrowMap[String(book._id)] || 0;
+    const favoriteCount = Number(book.favoriteCount) || 0;
+    const trendingScore = calculateTrendingScore(weeklyBorrowCount, favoriteCount, book.borrowedCount);
+
+    return {
+      updateOne: {
+        filter: { _id: book._id },
+        update: {
+          $set: {
+            weeklyBorrowCount,
+            trendingScore,
+            trendingWindowStart: weekStart,
+            trendingWindowEnd: weekEnd,
+          },
+        },
+      },
+    };
+  });
+
+  await Book.bulkWrite(updates);
+  return { updated: updates.length, weekStart, weekEnd };
+};
+
+// @desc    Get trending books (weekly)
+// @route   GET /api/books/trending
+const getTrendingBooks = async (req, res) => {
+  try {
+    const { search, category } = req.query;
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 12, 50));
+
+    const query = { isActive: true };
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { author: { $regex: search, $options: 'i' } },
+        { isbn: { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (category) query.category = { $regex: category, $options: 'i' };
+
+    const trending = await Book.find(query)
+      .sort({ trendingScore: -1, weeklyBorrowCount: -1, favoriteCount: -1, borrowedCount: -1, createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const { start: weekStart, end: weekEnd } = getCurrentWeekRange();
+
+    res.json({
+      weekStart,
+      weekEnd,
+      books: trending,
+    });
+  } catch (err) {
+    console.error('getTrendingBooks:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { getBooks, getBook, createBook, updateBook, deleteBook, importBooks, getAnalytics, toggleFavoriteBook, getFavoriteBooks, getRelatedBooks, getTrendingBooks, refreshWeeklyTrendingStats };

@@ -12,6 +12,8 @@ const SearchBooks = () => {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('all');
   const [favourites, setFavourites] = useState([]);
+  const [trendingBooks, setTrendingBooks] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
   const [selectedBook, setSelectedBook] = useState(null);
   const [relatedBooks, setRelatedBooks] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
@@ -41,10 +43,32 @@ const SearchBooks = () => {
     } catch {}
   };
 
+  const fetchTrendingBooks = async () => {
+    setTrendingLoading(true);
+    try {
+      const params = {};
+      if (search) params.search = search;
+      if (category) params.category = category;
+      const { data } = await api.get('/books/trending', { params });
+      setTrendingBooks(data.books || []);
+    } catch {
+      setTrendingBooks([]);
+      toast.error('Failed to load trending books');
+    } finally {
+      setTrendingLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchBooks();
     fetchFavourites();
+    fetchTrendingBooks();
   }, []);
+
+  const handleSearch = () => {
+    fetchBooks();
+    fetchTrendingBooks();
+  };
 
   const handleSelectBook = async (book) => {
     if (selectedBook?._id === book._id) {
@@ -97,9 +121,11 @@ const SearchBooks = () => {
 
   const displayBooks = tab === 'favourites'
     ? books.filter(b => favourites.includes(b._id))
-    : books;
+    : tab === 'trending'
+      ? trendingBooks
+      : books;
 
-  const BookCard = ({ book }) => {
+  const BookCard = ({ book, showTrendingStats = false }) => {
     const isFav = favourites.includes(book._id);
     return (
       <div className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -135,6 +161,12 @@ const SearchBooks = () => {
           {book.isbn && (
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Course ID: {book.isbn}</div>
           )}
+          {showTrendingStats && (
+            <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>🔥 Weekly borrows: <strong>{book.weeklyBorrowCount || 0}</strong></div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>❤️ Favourites: <strong>{book.favoriteCount || 0}</strong></div>
+            </div>
+          )}
           {user && (
             <div style={{ marginTop: 'auto', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               {book.availableCopies > 0
@@ -161,6 +193,7 @@ const SearchBooks = () => {
         <div className="filter-tabs mb-6">
           <button className={`filter-tab${tab === 'all' ? ' active' : ''}`} onClick={() => setTab('all')}>📚 All Books</button>
           <button className={`filter-tab${tab === 'favourites' ? ' active' : ''}`} onClick={() => setTab('favourites')}>❤️ Favourites {favourites.length > 0 && `(${favourites.length})`}</button>
+          <button className={`filter-tab${tab === 'trending' ? ' active' : ''}`} onClick={() => setTab('trending')}>🔥 Trending Books {trendingBooks.length > 0 && `(${trendingBooks.length})`}</button>
         </div>
       )}
 
@@ -174,27 +207,28 @@ const SearchBooks = () => {
                 placeholder="Search by title, author, course code"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && fetchBooks()}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
               />
             </div>
             <select className="filter-select" value={category} onChange={e => setCategory(e.target.value)}>
               <option value="">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <button className="btn btn-primary" onClick={fetchBooks}>Search</button>
+            <button className="btn btn-primary" onClick={handleSearch}>Search</button>
           </div>
         </div>
       </div>
 
-      {loading ? <div className="spinner" /> : displayBooks.length === 0 ? (
+      {((tab === 'trending' && trendingLoading) || (tab !== 'trending' && loading)) ? <div className="spinner" /> : displayBooks.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">{tab === 'favourites' ? '❤️' : '📚'}</div>
-          <p>{tab === 'favourites' ? 'No favourite books yet. Click the ❤️ on any book to save it.' : 'No books found. Try a different search.'}</p>
+          <div className="empty-state-icon">{tab === 'favourites' ? '❤️' : tab === 'trending' ? '🔥' : '📚'}</div>
+          <p>{tab === 'favourites' ? 'No favourite books yet. Click the ❤️ on any book to save it.' : tab === 'trending' ? 'No trending books for this week yet. Try different filters or check again later.' : 'No books found. Try a different search.'}</p>
           {tab === 'favourites' && <button className="btn btn-primary mt-3" onClick={() => setTab('all')}>Browse All Books</button>}
+          {tab === 'trending' && <button className="btn btn-primary mt-3" onClick={() => setTab('all')}>Browse All Books</button>}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1.25rem' }}>
-          {displayBooks.map(book => <BookCard key={book._id} book={book} />)}
+          {displayBooks.map(book => <BookCard key={book._id} book={book} showTrendingStats={tab === 'trending'} />)}
         </div>
       )}
 
