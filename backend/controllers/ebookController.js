@@ -42,7 +42,6 @@ const uploadEBook = async (req, res) => {
     if (!req.files || !req.files.file) return res.status(400).json({ message: 'PDF file is required' });
     const uploadedFile = req.files.file[0];
     if (!uploadedFile.size || uploadedFile.size === 0) {
-      // Remove the 0-byte file
       const badPath = path.join(__dirname, '..', 'uploads', 'ebooks', uploadedFile.filename);
       fs.unlink(badPath, () => {});
       return res.status(400).json({ message: 'Uploaded PDF file is empty or corrupted. Please try again.' });
@@ -161,12 +160,31 @@ const getFavourites = async (req, res) => {
   }
 };
 
-// @desc    Get leaderboard
+// @desc    Get weekly leaderboard (resets every Monday)
 // @route   GET /api/ebooks/leaderboard
 const getLeaderboard = async (req, res) => {
   try {
+    const now = new Date();
+
+    // Calculate start of current week (Monday 00:00:00)
+    const startOfWeek = new Date(now);
+    startOfWeek.setHours(0, 0, 0, 0);
+    const day = startOfWeek.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1; // 0 = Sunday → go back 6 days to Monday
+    startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
+
+    // End of current week (Sunday 23:59:59)
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
     const leaderboard = await ReadingHistory.aggregate([
-      { $match: { action: 'read' } },
+      {
+        $match: {
+          action: 'read',
+          readAt: { $gte: startOfWeek, $lte: endOfWeek }
+        }
+      },
       { $group: { _id: '$user', booksRead: { $sum: 1 } } },
       { $sort: { booksRead: -1 } },
       { $limit: 10 },
@@ -174,6 +192,7 @@ const getLeaderboard = async (req, res) => {
       { $unwind: '$user' },
       { $project: { 'user.name': 1, 'user.profileImage': 1, booksRead: 1 } },
     ]);
+
     res.json(leaderboard);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -264,4 +283,18 @@ const downloadEBook = async (req, res) => {
   }
 };
 
-module.exports = { getEBooks, getEBook, uploadEBook, updateEBook, deleteEBook, trackEBook, toggleFavourite, getFavourites, getLeaderboard, getReadingHistory, getEBookAnalytics, serveEBook, downloadEBook };
+module.exports = { 
+  getEBooks, 
+  getEBook, 
+  uploadEBook, 
+  updateEBook, 
+  deleteEBook, 
+  trackEBook, 
+  toggleFavourite, 
+  getFavourites, 
+  getLeaderboard, 
+  getReadingHistory, 
+  getEBookAnalytics, 
+  serveEBook, 
+  downloadEBook 
+};
