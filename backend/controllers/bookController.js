@@ -1,10 +1,14 @@
 const fs = require('fs');
 const path = require('path');
+const { Readable } = require('stream');
 const csv = require('csv-parser');
 const Book = require('../models/Book');
 const User = require('../models/User');
 const BorrowRequest = require('../models/BorrowRequest');
 const WaitingList = require('../models/WaitingList');
+
+const RECOMMEND_URGENT_THRESHOLD = 6;
+const RECOMMEND_HIGH_THRESHOLD = 3;
 
 // @desc    Get all books
 // @route   GET /api/books
@@ -59,12 +63,22 @@ const updateBook = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id);
     if (!book) return res.status(404).json({ message: 'Book not found' });
-    const fields = ['title', 'author', 'isbn', 'category', 'description', 'totalCopies', 'publisher', 'publishYear', 'language'];
+    const fields = ['title', 'author', 'isbn', 'category', 'description', 'publisher', 'publishYear', 'language'];
     fields.forEach(f => { if (req.body[f] !== undefined) book[f] = req.body[f]; });
-    if (req.body.totalCopies) {
-      const diff = Number(req.body.totalCopies) - book.totalCopies;
-      book.availableCopies = Math.max(0, book.availableCopies + diff);
-      book.totalCopies = Number(req.body.totalCopies);
+    if (req.body.totalCopies !== undefined) {
+      const nextTotalCopies = Number(req.body.totalCopies);
+      if (Number.isNaN(nextTotalCopies) || nextTotalCopies < 1) {
+        return res.status(400).json({ message: 'totalCopies must be at least 1' });
+      }
+
+      const currentlyBorrowed = await BorrowRequest.countDocuments({
+        book: book._id,
+        status: { $in: ['approved', 'overdue'] },
+      });
+
+      // Recompute availability from active borrows so stale values are corrected.
+      book.availableCopies = Math.max(0, nextTotalCopies - currentlyBorrowed);
+      book.totalCopies = nextTotalCopies;
     }
     if (req.file) book.coverImage = `/uploads/images/${req.file.filename}`;
     const updated = await book.save();
@@ -96,9 +110,43 @@ const importBooks = async (req, res) => {
     const results = [];
     const errors = [];
     const filePath = req.file.path;
+
+    const fileBuffer = fs.readFileSync(filePath);
+    let fileText = fileBuffer.toString('utf8');
+
+    // Handle common Excel exports (UTF-16) where UTF-8 decoding breaks header detection.
+    if (fileBuffer.length >= 2) {
+      const b0 = fileBuffer[0];
+      const b1 = fileBuffer[1];
+      if (b0 === 0xff && b1 === 0xfe) {
+        fileText = fileBuffer.toString('utf16le');
+      } else if (b0 === 0xfe && b1 === 0xff) {
+        // Convert UTF-16BE to UTF-16LE for Node decoding.
+        const swapped = Buffer.from(fileBuffer);
+        for (let i = 0; i + 1 < swapped.length; i += 2) {
+          const tmp = swapped[i];
+          swapped[i] = swapped[i + 1];
+          swapped[i + 1] = tmp;
+        }
+        fileText = swapped.toString('utf16le');
+      }
+    }
+
+    // Some Excel CSV exports are UTF-16LE without BOM.
+    if (fileText.includes('\u0000')) {
+      fileText = fileBuffer.toString('utf16le');
+    }
+
+    const firstLine = (fileText.split(/\r?\n/)[0] || '').replace(/^\uFEFF/, '');
+    const delimiterCandidates = [',', ';', '\t'];
+    const separator = delimiterCandidates.reduce((best, candidate) => {
+      const count = firstLine ? firstLine.split(candidate).length - 1 : 0;
+      return count > best.count ? { delimiter: candidate, count } : best;
+    }, { delimiter: ',', count: -1 }).delimiter;
+
     await new Promise((resolve, reject) => {
-      fs.createReadStream(filePath)
-        .pipe(csv())
+      Readable.from([fileText])
+        .pipe(csv({ separator }))
         .on('data', (row) => results.push(row))
         .on('end', resolve)
         .on('error', reject);
@@ -106,31 +154,136 @@ const importBooks = async (req, res) => {
     const imported = [];
     for (let i = 0; i < results.length; i++) {
       const row = results[i];
-      if (!row.title || !row.author || !row.category) {
-        errors.push({ row: i + 2, message: 'Missing required fields: title, author, category' });
+
+      // Normalize CSV headers so minor spelling/case differences still import correctly.
+      const normalizedRow = {};
+      Object.entries(row).forEach(([key, value]) => {
+        const normalizedKey = String(key || '')
+          .replace(/^\uFEFF/, '')
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+        normalizedRow[normalizedKey] = typeof value === 'string' ? value.trim() : value;
+      });
+
+      const pick = (...keys) => {
+        for (const key of keys) {
+          if (normalizedRow[key] !== undefined && normalizedRow[key] !== '') return normalizedRow[key];
+        }
+        return undefined;
+      };
+
+      const pickByPrefix = (prefix) => {
+        const k = Object.keys(normalizedRow).find((key) => key.startsWith(prefix));
+        return k ? normalizedRow[k] : undefined;
+      };
+
+      const rowValues = Object.values(normalizedRow).map((v) => (typeof v === 'string' ? v.trim() : v));
+
+      const title = pick('title') || pickByPrefix('title');
+      const author = pick('author') || pickByPrefix('author');
+      const category = pick('category', 'categyory', 'categroy') || pickByPrefix('categ');
+      const isbn = pick('isbn');
+      const description = pick('description', 'descriptio') || pickByPrefix('descrip') || '';
+      const totalCopiesValue = pick('totalcopies', 'totalcopie', 'totalcopy') || pickByPrefix('totalcop');
+      const publisher = pick('publisher') || '';
+      const publishYearValue = pick('publishyear', 'publishye', 'year') || pickByPrefix('publishy');
+      const language = pick('language') || 'English';
+
+      // Positional fallback for malformed/missing headers:
+      // [title, author, isbn, category, description, totalCopies, publisher, publishYear, language]
+      const titleFromIndex = rowValues[0];
+      const authorFromIndex = rowValues[1];
+      const isbnFromIndex = rowValues[2];
+      const categoryFromIndex = rowValues[3];
+      const descriptionFromIndex = rowValues[4];
+      const totalCopiesFromIndex = rowValues[5];
+      const publisherFromIndex = rowValues[6];
+      const publishYearFromIndex = rowValues[7];
+      const languageFromIndex = rowValues[8];
+
+      let resolvedTitle = title || titleFromIndex;
+      let resolvedAuthor = author || authorFromIndex;
+      let resolvedCategory = category || categoryFromIndex;
+      let resolvedIsbn = isbn || isbnFromIndex;
+      let resolvedDescription = description || descriptionFromIndex || '';
+      let resolvedTotalCopiesValue = totalCopiesValue || totalCopiesFromIndex;
+      let resolvedPublisher = publisher || publisherFromIndex || '';
+      let resolvedPublishYearValue = publishYearValue || publishYearFromIndex;
+      let resolvedLanguage = language || languageFromIndex || 'English';
+
+      // If parser produced a single-column row, rebuild values by splitting raw key/value.
+      if ((!resolvedTitle || !resolvedAuthor || !resolvedCategory) && Object.keys(normalizedRow).length === 1) {
+        const rawHeader = String(Object.keys(normalizedRow)[0] || '');
+        const rawValue = String(Object.values(normalizedRow)[0] || '');
+        const bestSeparator = [',', ';', '\t'].reduce((best, candidate) => {
+          const count = rawHeader.split(candidate).length - 1;
+          return count > best.count ? { delimiter: candidate, count } : best;
+        }, { delimiter: ',', count: -1 }).delimiter;
+
+        const headerParts = rawHeader.split(bestSeparator).map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+        const valueParts = rawValue.split(bestSeparator).map((v) => v.trim());
+        const rebuilt = {};
+        headerParts.forEach((h, idx) => { rebuilt[h] = valueParts[idx]; });
+
+        resolvedTitle = resolvedTitle || rebuilt.title || valueParts[0];
+        resolvedAuthor = resolvedAuthor || rebuilt.author || valueParts[1];
+        resolvedCategory = resolvedCategory || rebuilt.category || rebuilt.categyory || valueParts[3];
+        resolvedIsbn = resolvedIsbn || rebuilt.isbn || valueParts[2];
+        resolvedDescription = resolvedDescription || rebuilt.description || valueParts[4] || '';
+        resolvedTotalCopiesValue = resolvedTotalCopiesValue || rebuilt.totalcopies || valueParts[5];
+        resolvedPublisher = resolvedPublisher || rebuilt.publisher || valueParts[6] || '';
+        resolvedPublishYearValue = resolvedPublishYearValue || rebuilt.publishyear || valueParts[7];
+        resolvedLanguage = resolvedLanguage || rebuilt.language || valueParts[8] || 'English';
+      }
+
+      if (!resolvedTitle || !resolvedAuthor || !resolvedCategory) {
+        errors.push({
+          row: i + 2,
+          message: 'Missing required fields: title, author, category',
+          detectedHeaders: Object.keys(normalizedRow),
+          detectedValues: rowValues,
+        });
         continue;
       }
       try {
+        const parsedTotalCopies = Number(resolvedTotalCopiesValue);
+        const safeTotalCopies = Number.isFinite(parsedTotalCopies) && parsedTotalCopies > 0
+          ? Math.floor(parsedTotalCopies)
+          : 1;
+
+        const parsedPublishYear = Number(resolvedPublishYearValue);
+        const safePublishYear = Number.isFinite(parsedPublishYear)
+          ? Math.floor(parsedPublishYear)
+          : undefined;
+
         const bookData = {
-          title: row.title.trim(),
-          author: row.author.trim(),
-          category: row.category.trim(),
-          isbn: row.isbn ? row.isbn.trim() : undefined,
-          description: row.description || '',
-          totalCopies: Number(row.totalCopies) || 1,
-          availableCopies: Number(row.totalCopies) || 1,
-          publisher: row.publisher || '',
-          publishYear: row.publishYear ? Number(row.publishYear) : undefined,
-          language: row.language || 'English',
+          title: resolvedTitle,
+          author: resolvedAuthor,
+          category: resolvedCategory,
+          isbn: resolvedIsbn || undefined,
+          description: resolvedDescription,
+          totalCopies: safeTotalCopies,
+          availableCopies: safeTotalCopies,
+          publisher: resolvedPublisher,
+          publishYear: safePublishYear,
+          language: resolvedLanguage,
         };
         const book = await Book.create(bookData);
         imported.push(book);
       } catch (e) {
-        errors.push({ row: i + 2, message: e.message });
+        errors.push({
+          row: i + 2,
+          message: e.message,
+          title: resolvedTitle,
+          author: resolvedAuthor,
+          category: resolvedCategory,
+          isbn: resolvedIsbn || undefined,
+        });
       }
     }
     fs.unlinkSync(filePath);
-    res.json({ imported: imported.length, errors });
+    res.json({ imported: imported.length, errors, meta: { separator } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -140,6 +293,9 @@ const importBooks = async (req, res) => {
 // @route   GET /api/books/analytics
 const getAnalytics = async (req, res) => {
   try {
+    const urgentThreshold = RECOMMEND_URGENT_THRESHOLD;
+    const highThreshold = Math.min(RECOMMEND_HIGH_THRESHOLD, urgentThreshold);
+
     const books = await Book.find({ isActive: true });
     const totalBooks = books.length;
     const totalCopies = books.reduce((a, b) => a + b.totalCopies, 0);
@@ -160,47 +316,52 @@ const getAnalytics = async (req, res) => {
     ]);
     const waitingCountMap = {};
     waitingAgg.forEach(w => { waitingCountMap[String(w._id)] = w.count; });
-    const waitingBookIds = new Set(Object.keys(waitingCountMap));
 
-    // --- Borrow frequency: count per book ---
-    const frequentBorrows = await BorrowRequest.aggregate([
+    // --- Borrow frequency (last 30 days): count per book ---
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentBorrows = await BorrowRequest.aggregate([
+      { $match: { createdAt: { $gte: thirtyDaysAgo } } },
       { $group: { _id: '$book', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 },
     ]);
     const borrowCountMap = {};
-    frequentBorrows.forEach(f => { borrowCountMap[String(f._id)] = f.count; });
-    const freqIds = frequentBorrows.map(f => f._id);
-
-    // --- Low stock books ---
-    const lowStockBooks = books.filter(b => b.availableCopies <= 1).map(b => b._id);
+    recentBorrows.forEach(f => { borrowCountMap[String(f._id)] = f.count; });
 
     const recommendIds = [...new Set([
-      ...waitingBookIds,
-      ...freqIds.map(String),
-      ...lowStockBooks.map(String),
+      ...Object.keys(waitingCountMap),
+      ...Object.keys(borrowCountMap),
+      ...books.filter(b => b.availableCopies <= 1).map(b => String(b._id)),
     ])];
     const rawBooks = await Book.find({ _id: { $in: recommendIds }, isActive: true }).lean();
 
-    // --- Enrich each book with priority signals ---
+    // Final score:
+    // ((waitingCount*3) + (borrowCount*1)) / (totalCopies + 1) + lowStockBonus
     const recommendations = rawBooks.map(b => {
       const id = String(b._id);
-      const hasWaiting = waitingBookIds.has(id);
       const waitingCount = waitingCountMap[id] || 0;
       const borrowCount = borrowCountMap[id] || 0;
-      const isLowStock = b.availableCopies <= 1;
+      const lowStockBonus = b.availableCopies === 0 ? 5 : b.availableCopies === 1 ? 3 : 0;
+      const pressureScore = ((waitingCount * 3) + borrowCount) / ((b.totalCopies || 0) + 1);
+      const recommendationScore = Number((pressureScore + lowStockBonus).toFixed(2));
 
-      let priority, priorityScore;
-      if (hasWaiting || b.availableCopies === 0) {
-        priority = 'urgent';  priorityScore = 0;
-      } else if (isLowStock || borrowCount >= 5) {
-        priority = 'high';    priorityScore = 1;
-      } else {
-        priority = 'medium';  priorityScore = 2;
+      // Thresholds tuned for normalized pressure-based scores.
+      let priority = 'medium';
+      if (recommendationScore >= urgentThreshold) {
+        priority = 'urgent';
+      } else if (recommendationScore >= highThreshold) {
+        priority = 'high';
       }
 
-      return { ...b, hasWaiting, waitingCount, borrowCount, isLowStock, priority, priorityScore };
-    }).sort((a, b) => a.priorityScore - b.priorityScore || b.waitingCount - a.waitingCount || b.borrowCount - a.borrowCount);
+      return {
+        ...b,
+        waitingCount,
+        borrowCount,
+        pressureScore: Number(pressureScore.toFixed(2)),
+        lowStockBonus,
+        recommendationScore,
+        priority,
+      };
+    }).sort((a, b) => b.recommendationScore - a.recommendationScore || b.waitingCount - a.waitingCount || b.borrowCount - a.borrowCount);
 
     res.json({
       totalBooks, totalCopies, availableCopies, borrowedCopies, lowStock,
@@ -209,6 +370,10 @@ const getAnalytics = async (req, res) => {
         { name: 'Available', value: availableCopies },
         { name: 'Borrowed/Reserved', value: borrowedCopies },
       ],
+      priorityThresholds: {
+        urgent: urgentThreshold,
+        high: highThreshold,
+      },
       recommendations,
     });
   } catch (err) {

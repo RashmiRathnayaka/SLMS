@@ -171,7 +171,7 @@ const SearchBooks = () => {
               <span className="search-icon">🔍</span>
               <input
                 className="search-input"
-                placeholder="Search by title, author, ISBN or course code..."
+                placeholder="Search by title, author, course code"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && fetchBooks()}
