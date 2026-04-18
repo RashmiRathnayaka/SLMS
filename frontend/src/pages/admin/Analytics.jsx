@@ -31,6 +31,9 @@ const Analytics = () => {
     : 0;
   const categoryChartData = [...(data.categoryData || [])]
     .sort((a, b) => b.count - a.count);
+  const recommendations = data.recommendations || [];
+  const urgentThreshold = Number(data.priorityThresholds?.urgent) || 6;
+  const highThreshold = Number(data.priorityThresholds?.high) || 3;
 
   const renderAvailabilityTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
@@ -164,17 +167,24 @@ const Analytics = () => {
         <div className="card-header"><span className="card-title">💡 Purchase Recommendations</span></div>
         <div className="card-body">
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.9rem' }}>Books recommended based on waiting lists, borrow frequency, and low stock.</p>
-          {data.recommendations.length === 0 ? (
+          {recommendations.length === 0 ? (
             <p style={{ color: 'var(--text-muted)' }}>No recommendations at this time.</p>
           ) : (
-            <div className="table-wrapper">
+            <div className="table-wrapper recommendations-table">
               <table>
-                <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Category</th><th>Available / Total</th><th>Waiting</th><th>Borrows</th><th>Priority</th></tr></thead>
+                <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Category</th><th>Available / Total</th><th>Waiting</th><th>Borrows (30d)</th><th>Low Stock Bonus</th><th>Score</th><th>Priority</th></tr></thead>
                 <tbody>
-                  {data.recommendations.map((b, idx) => {
-                    const priorityBadge = b.priority === 'urgent'
+                  {recommendations.map((b, idx) => {
+                    const score = Number(b.recommendationScore) || 0;
+                    const computedPriority = score >= urgentThreshold
+                      ? 'urgent'
+                      : score >= highThreshold
+                      ? 'high'
+                      : 'medium';
+
+                    const priorityBadge = computedPriority === 'urgent'
                       ? { cls: 'badge-danger',  label: '🔴 Urgent' }
-                      : b.priority === 'high'
+                      : computedPriority === 'high'
                       ? { cls: 'badge-warning', label: '🟡 High' }
                       : { cls: 'badge-primary', label: '🔵 Medium' };
                     return (
@@ -190,6 +200,8 @@ const Analytics = () => {
                             : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                         </td>
                         <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' }}>{b.borrowCount || 0}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' }}>+{b.lowStockBonus || 0}</td>
+                        <td style={{ textAlign: 'center' }}><span className="badge badge-primary">{b.recommendationScore || 0}</span></td>
                         <td><span className={`badge ${priorityBadge.cls}`}>{priorityBadge.label}</span></td>
                       </tr>
                     );
