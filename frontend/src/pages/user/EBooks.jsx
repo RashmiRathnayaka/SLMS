@@ -101,15 +101,60 @@ const EBooks = () => {
 
       {tab === 'leaderboard' ? (
         <div className="card">
-          <div className="card-header"><span className="card-title">Most Active Readers</span></div>
+          <div className="card-header">
+            <span className="card-title">🏆 This Week's Leaderboard</span>
+            <p style={{ margin: '0.3rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Resets every Monday • Only this week's reads count
+            </p>
+          </div>
           <div className="card-body">
-            {leaderboard.length === 0 ? <div className="empty-state"><div className="empty-state-icon">🏆</div><p>No data yet.</p></div> : leaderboard.map((entry, i) => (
-              <div key={entry._id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 0', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ width: 36, height: 36, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.9rem', flexShrink: 0, ...rankStyle(i) }}>{i + 1}</span>
-                <span style={{ flex: 1, fontWeight: 600 }}>{entry.user?.name}</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{entry.booksRead} books read</span>
+            {leaderboard.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">🏆</div>
+                <p>No reads recorded this week yet.</p>
               </div>
-            ))}
+            ) : (
+              leaderboard.map((entry, i) => (
+                <div key={entry._id} style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '1rem', 
+                  padding: '0.9rem 0', 
+                  borderBottom: i < leaderboard.length - 1 ? '1px solid var(--border)' : 'none' 
+                }}>
+                  <span style={{ 
+                    width: 42, 
+                    height: 42, 
+                    borderRadius: '50%', 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    fontWeight: 700, 
+                    fontSize: '1.1rem', 
+                    flexShrink: 0, 
+                    ...rankStyle(i) 
+                  }}>
+                    {i + 1}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{entry.user?.name}</div>
+                    {entry.user?.profileImage && (
+                      <img 
+                        src={entry.user.profileImage} 
+                        alt="" 
+                        style={{ width: 24, height: 24, borderRadius: '50%', marginTop: '0.25rem' }} 
+                      />
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary)' }}>
+                      {entry.booksRead}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>books read</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       ) : (
@@ -117,7 +162,13 @@ const EBooks = () => {
           <div className="search-bar mb-6">
             <div className="search-input-wrap" style={{ flex: 1 }}>
               <span className="search-icon">🔍</span>
-              <input className="search-input" placeholder="Search e-books..." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && fetchEBooks()} />
+              <input 
+                className="search-input" 
+                placeholder="Search e-books..." 
+                value={search} 
+                onChange={e => setSearch(e.target.value)} 
+                onKeyDown={e => e.key === 'Enter' && fetchEBooks()} 
+              />
             </div>
             <select className="filter-select" value={category} onChange={e => setCategory(e.target.value)}>
               <option value="">All Categories</option>
@@ -125,8 +176,12 @@ const EBooks = () => {
             </select>
             <button className="btn btn-primary" onClick={fetchEBooks}>Search</button>
           </div>
+
           {loading ? <div className="spinner" /> : displayBooks.length === 0 ? (
-            <div className="empty-state"><div className="empty-state-icon">📚</div><p>No e-books found.</p></div>
+            <div className="empty-state">
+              <div className="empty-state-icon">📚</div>
+              <p>No e-books found.</p>
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px,1fr))', gap: '1.5rem' }}>
               {displayBooks.map(ebook => (
@@ -136,7 +191,27 @@ const EBooks = () => {
                       ? <img src={ebook.coverImage} alt={ebook.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : <span style={{ fontSize: '3.5rem' }}>📄</span>}
                     {user && (
-                      <button onClick={() => handleToggleFav(ebook._id)} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.85)', border: 'none', cursor: 'pointer', fontSize: '1.1rem', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'var(--t)', boxShadow: '0 1px 4px rgba(0,0,0,0.2)', flexShrink: 0 }}>
+                      <button 
+                        onClick={() => handleToggleFav(ebook._id)} 
+                        style={{ 
+                          position: 'absolute', 
+                          top: 8, 
+                          right: 8, 
+                          background: 'rgba(255,255,255,0.85)', 
+                          border: 'none', 
+                          cursor: 'pointer', 
+                          fontSize: '1.1rem', 
+                          width: 32, 
+                          height: 32, 
+                          borderRadius: '50%', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          transition: 'var(--t)', 
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)', 
+                          flexShrink: 0 
+                        }}
+                      >
                         {favourites.includes(ebook._id) ? '❤️' : '🤍'}
                       </button>
                     )}
@@ -145,7 +220,9 @@ const EBooks = () => {
                     <h3 style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.25rem' }}>{ebook.title}</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '0.3rem' }}>by {ebook.author}</p>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginBottom: '0.5rem' }}>📂 {ebook.category}</p>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginBottom: '0.75rem' }}>👁 {ebook.readCount} reads &middot; ⬇ {ebook.downloadCount} downloads</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginBottom: '0.75rem' }}>
+                      👁 {ebook.readCount} reads &middot; ⬇ {ebook.downloadCount} downloads
+                    </p>
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                       <button className="btn btn-primary btn-sm" onClick={() => handleRead(ebook)}>📖 Read</button>
                       <button className="btn btn-success btn-sm" onClick={() => handleDownload(ebook)}>⬇ Download</button>
