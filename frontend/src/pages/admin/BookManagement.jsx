@@ -89,7 +89,8 @@ const BookManagement = () => {
     const fd = new FormData(); fd.append('file', csvFile);
     try {
       const { data } = await api.post('/books/import/csv', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      toast.success(`Imported ${data.imported} books. Errors: ${data.errors.length}`);
+      const firstError = data.errors?.[0]?.message ? ` First error: ${data.errors[0].message}` : '';
+      toast.success(`Imported ${data.imported} books. Errors: ${data.errors.length}.${firstError}`);
       setCsvFile(null); fetchBooks();
     } catch (err) { toast.error(err.response?.data?.message || 'Import failed'); }
   };
