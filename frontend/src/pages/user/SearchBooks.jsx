@@ -93,6 +93,7 @@ const SearchBooks = () => {
       await api.post('/borrows', { bookId });
       toast.success('Borrow request submitted!');
       fetchBooks();
+      fetchTrendingBooks();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Borrow failed');
     }
@@ -113,6 +114,7 @@ const SearchBooks = () => {
       const { data } = await api.post(`/books/${bookId}/favourite`);
       const ids = data.favorites.map(String);
       setFavourites(ids);
+      fetchTrendingBooks();
       toast.success(ids.includes(bookId) ? '❤️ Added to favourites' : 'Removed from favourites');
     } catch {
       toast.error('Failed to update favourites');

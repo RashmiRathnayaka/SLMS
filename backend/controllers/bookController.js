@@ -13,7 +13,6 @@ const RECOMMEND_HIGH_THRESHOLD = 3;
 
 const TRENDING_BORROW_WEIGHT = 3;
 const TRENDING_FAVORITE_WEIGHT = 2;
-const TRENDING_HISTORICAL_BORROW_WEIGHT = 0.25;
 
 const getCurrentWeekRange = (referenceDate = new Date()) => {
   const start = new Date(referenceDate);
@@ -28,13 +27,54 @@ const getCurrentWeekRange = (referenceDate = new Date()) => {
   return { start, end };
 };
 
-const calculateTrendingScore = (weeklyBorrowCount, favoriteCount, borrowedCount) => Number((
+const calculateTrendingScore = (weeklyBorrowCount, favoriteCount) => Number((
   (weeklyBorrowCount * TRENDING_BORROW_WEIGHT)
   + (favoriteCount * TRENDING_FAVORITE_WEIGHT)
-  + ((borrowedCount || 0) * TRENDING_HISTORICAL_BORROW_WEIGHT)
 ).toFixed(2));
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+// Reset weekly trending counters when a new week starts.
+const ensureTrendingWeek = async () => {
+  const { start: weekStart, end: weekEnd } = getCurrentWeekRange();
+
+  const hasMismatchedWindow = await Book.exists({
+    isActive: true,
+    $or: [
+      { trendingWindowStart: { $ne: weekStart } },
+      { trendingWindowEnd: { $ne: weekEnd } },
+    ],
+  });
+
+  if (!hasMismatchedWindow) {
+    return { weekStart, weekEnd, reset: false };
+  }
+
+  const activeBooks = await Book.find({ isActive: true })
+    .select('_id favoriteCount')
+    .lean();
+
+  if (activeBooks.length === 0) {
+    return { weekStart, weekEnd, reset: false };
+  }
+
+  const resetUpdates = activeBooks.map((book) => ({
+    updateOne: {
+      filter: { _id: book._id },
+      update: {
+        $set: {
+          weeklyBorrowCount: 0,
+          trendingScore: calculateTrendingScore(0, Number(book.favoriteCount) || 0),
+          trendingWindowStart: weekStart,
+          trendingWindowEnd: weekEnd,
+        },
+      },
+    },
+  }));
+
+  await Book.bulkWrite(resetUpdates);
+  return { weekStart, weekEnd, reset: true };
+};
 
 // @desc    Get all books
 // @route   GET /api/books
@@ -436,10 +476,29 @@ const toggleFavoriteBook = async (req, res) => {
       { new: true, select: 'favoriteBooks' }
     );
 
+    const { weekStart, weekEnd } = await ensureTrendingWeek();
+
     if (isAlready) {
       await Book.updateOne({ _id: bookId, favoriteCount: { $gt: 0 } }, { $inc: { favoriteCount: -1 } });
     } else {
       await Book.updateOne({ _id: bookId }, { $inc: { favoriteCount: 1 } });
+    }
+
+    const scoreBook = await Book.findById(bookId).select('weeklyBorrowCount favoriteCount').lean();
+    if (scoreBook) {
+      await Book.updateOne(
+        { _id: bookId },
+        {
+          $set: {
+            trendingScore: calculateTrendingScore(
+              Number(scoreBook.weeklyBorrowCount) || 0,
+              Number(scoreBook.favoriteCount) || 0
+            ),
+            trendingWindowStart: weekStart,
+            trendingWindowEnd: weekEnd,
+          },
+        }
+      );
     }
 
     res.json({ favorites: updated.favoriteBooks || [] });
@@ -521,7 +580,7 @@ const refreshWeeklyTrendingStats = async () => {
   const updates = activeBooks.map((book) => {
     const weeklyBorrowCount = weeklyBorrowMap[String(book._id)] || 0;
     const favoriteCount = Number(book.favoriteCount) || 0;
-    const trendingScore = calculateTrendingScore(weeklyBorrowCount, favoriteCount, book.borrowedCount);
+    const trendingScore = calculateTrendingScore(weeklyBorrowCount, favoriteCount);
 
     return {
       updateOne: {
@@ -548,8 +607,8 @@ const getTrendingBooks = async (req, res) => {
   try {
     const { search, category } = req.query;
     const limit = Math.max(1, Math.min(Number(req.query.limit) || 12, 50));
+    const { weekStart, weekEnd } = await ensureTrendingWeek();
 
-    const includeAll = req.query.includeAll === 'true';
     const conditions = [{ isActive: true }];
 
     if (search) {
@@ -566,24 +625,17 @@ const getTrendingBooks = async (req, res) => {
       conditions.push({ category: { $regex: category, $options: 'i' } });
     }
 
-    // By default, trending is strictly this week's activity.
-    if (!includeAll) {
-      conditions.push({ weeklyBorrowCount: { $gt: 0 } });
-    }
-
     const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
 
-    const trending = await Book.find(query)
+    const books = await Book.find(query)
       .sort({ trendingScore: -1, weeklyBorrowCount: -1, favoriteCount: -1, borrowedCount: -1, createdAt: -1 })
       .limit(limit)
       .lean();
 
-    const { start: weekStart, end: weekEnd } = getCurrentWeekRange();
-
     res.json({
       weekStart,
       weekEnd,
-      books: trending,
+      books,
     });
   } catch (err) {
     console.error('getTrendingBooks:', err.message);
@@ -591,4 +643,4 @@ const getTrendingBooks = async (req, res) => {
   }
 };
 
-module.exports = { getBooks, getBook, createBook, updateBook, deleteBook, importBooks, getAnalytics, toggleFavoriteBook, getFavoriteBooks, getRelatedBooks, getTrendingBooks, refreshWeeklyTrendingStats };
+module.exports = { getBooks, getBook, createBook, updateBook, deleteBook, importBooks, getAnalytics, toggleFavoriteBook, getFavoriteBooks, getRelatedBooks, getTrendingBooks, refreshWeeklyTrendingStats, ensureTrendingWeek, calculateTrendingScore };
