@@ -46,7 +46,7 @@ const SearchBooks = () => {
   const fetchTrendingBooks = async () => {
     setTrendingLoading(true);
     try {
-      const params = {};
+      const params = { limit: 8 };
       if (search) params.search = search;
       if (category) params.category = category;
       const { data } = await api.get('/books/trending', { params });

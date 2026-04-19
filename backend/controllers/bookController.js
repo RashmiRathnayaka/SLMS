@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
 const csv = require('csv-parser');
+const mongoose = require('mongoose');
 const Book = require('../models/Book');
 const User = require('../models/User');
 const BorrowRequest = require('../models/BorrowRequest');
@@ -33,6 +34,8 @@ const calculateTrendingScore = (weeklyBorrowCount, favoriteCount, borrowedCount)
   + ((borrowedCount || 0) * TRENDING_HISTORICAL_BORROW_WEIGHT)
 ).toFixed(2));
 
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
 // @desc    Get all books
 // @route   GET /api/books
 const getBooks = async (req, res) => {
@@ -57,6 +60,12 @@ const getBooks = async (req, res) => {
 // @route   GET /api/books/:id
 const getBook = async (req, res) => {
   try {
+    if (req.params.id === 'trending') {
+      return getTrendingBooks(req, res);
+    }
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid book id' });
+    }
     const book = await Book.findById(req.params.id);
     if (!book) return res.status(404).json({ message: 'Book not found' });
     res.json(book);
@@ -409,6 +418,9 @@ const getAnalytics = async (req, res) => {
 const toggleFavoriteBook = async (req, res) => {
   try {
     const bookId = req.params.id;
+    if (!isValidObjectId(bookId)) {
+      return res.status(400).json({ message: 'Invalid book id' });
+    }
     const targetBook = await Book.findOne({ _id: bookId, isActive: true }).select('_id');
     if (!targetBook) return res.status(404).json({ message: 'Book not found' });
 
@@ -441,6 +453,9 @@ const toggleFavoriteBook = async (req, res) => {
 // @route   GET /api/books/:id/related
 const getRelatedBooks = async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid book id' });
+    }
     const book = await Book.findById(req.params.id).select('category').lean();
     if (!book) return res.status(404).json({ message: 'Book not found' });
     const related = await Book.find({
@@ -534,15 +549,29 @@ const getTrendingBooks = async (req, res) => {
     const { search, category } = req.query;
     const limit = Math.max(1, Math.min(Number(req.query.limit) || 12, 50));
 
-    const query = { isActive: true };
+    const includeAll = req.query.includeAll === 'true';
+    const conditions = [{ isActive: true }];
+
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { author: { $regex: search, $options: 'i' } },
-        { isbn: { $regex: search, $options: 'i' } },
-      ];
+      conditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { author: { $regex: search, $options: 'i' } },
+          { isbn: { $regex: search, $options: 'i' } },
+        ],
+      });
     }
-    if (category) query.category = { $regex: category, $options: 'i' };
+
+    if (category) {
+      conditions.push({ category: { $regex: category, $options: 'i' } });
+    }
+
+    // By default, trending is strictly this week's activity.
+    if (!includeAll) {
+      conditions.push({ weeklyBorrowCount: { $gt: 0 } });
+    }
+
+    const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
 
     const trending = await Book.find(query)
       .sort({ trendingScore: -1, weeklyBorrowCount: -1, favoriteCount: -1, borrowedCount: -1, createdAt: -1 })
