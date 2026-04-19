@@ -44,6 +44,7 @@ const CountdownBadge = ({ deadline }) => {
   );
 };
 
+
 const WaitingList = () => {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
