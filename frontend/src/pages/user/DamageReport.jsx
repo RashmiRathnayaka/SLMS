@@ -53,6 +53,7 @@ const DamageReport = () => {
 
   const sf = (k, v) => { setForm(f => ({ ...f, [k]: v })); if (errors[k]) setErrors(p => ({ ...p, [k]: '' })); };
 
+  //add validations
   const validate = () => {
     const errs = {};
     if (!form.bookTitle.trim()) errs.bookTitle = 'Book title is required';
@@ -126,6 +127,7 @@ const DamageReport = () => {
                       No currently borrowed books found.
                     </div>
                   ) : (
+                    //update book title auto fill
                     <select
                       className={`form-control${errors.bookTitle ? ' is-invalid' : ''}`}
                       value={form.bookTitle}
