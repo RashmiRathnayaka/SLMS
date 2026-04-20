@@ -34,6 +34,11 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
+  timeout: 30_000,
+  expect: {
+    timeout: 10_000,
+  },
+
   /* Configure projects for major browsers */
   projects: [
     {
@@ -72,11 +77,12 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests */
-  // webServer: {
-  //   command: 'npm run start',
-  //   url: 'http://localhost:3000',
-  //   reuseExistingServer: !process.env.CI,
-  // },
+  /* Start (or reuse) the Vite dev server before tests */
+  webServer: {
+    command: 'npm run dev -- --host 127.0.0.1 --port 5173',
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 });
 
