@@ -88,35 +88,41 @@ const InquiryManagement = () => {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{
-              paddingLeft: '2.5rem',
               fontSize: '0.95rem',
               borderRadius: '0.5rem',
               border: '1px solid var(--border-color)',
-              padding: '0.75rem 1rem'
+              padding: '0.75rem 1rem 0.75rem 2.75rem'
             }}
           />
-          <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem' }}>
+          <span style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', pointerEvents: 'none' }}>
             🔍
           </span>
         </div>
-        <select
-          value={sortOrder}
-          onChange={(e) => setSortOrder(e.target.value)}
-          className="form-control"
-          style={{
-            width: 'auto',
-            minWidth: '180px',
-            fontSize: '0.95rem',
-            borderRadius: '0.5rem',
-            border: '1px solid var(--border-color)',
-            padding: '0.75rem 1rem',
-            cursor: 'pointer'
-          }}
-        >
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first</option>
-          <option value="name-az">Name A-Z</option>
-        </select>
+        <div style={{ position: 'relative' }}>
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+            className="form-control"
+            style={{
+              width: 'auto',
+              minWidth: '180px',
+              fontSize: '0.95rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border-color)',
+              padding: '0.75rem 2.5rem 0.75rem 1rem',
+              cursor: 'pointer',
+              appearance: 'none',
+              paddingRight: '2rem'
+            }}
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name-az">Name A-Z</option>
+          </select>
+          <span style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.9rem', pointerEvents: 'none', color: 'var(--text-secondary)' }}>
+            ▼
+          </span>
+        </div>
       </div>
 
       {loading ? <div className="spinner" /> : sortedInquiries.length === 0 ? (
