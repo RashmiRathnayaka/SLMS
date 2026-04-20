@@ -4,13 +4,30 @@ import api from '../../api/axios';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 
+// Words stripped when deriving match keywords from a course name
+const STOP_WORDS = new Set(['of', 'in', 'and', 'the', 'a', 'an', 'bachelor', 'master', 'hons', 'arts']);
+
+const getCourseKeywords = (courseName) =>
+  [...new Set(
+    courseName.toLowerCase()
+      .replace(/[()&]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 1 && !STOP_WORDS.has(w))
+  )];
+
+// Returns the part after " in " for a shorter display label
+const getCourseLabel = (courseName) => {
+  const match = courseName.match(/ in (.+)$/i);
+  return match ? match[1] : courseName;
+};
+
 const Recommendations = () => {
   const { user } = useAuth();
   const [recs, setRecs] = useState({ type: null, books: [], categories: [], courses: [] });
   const [loading, setLoading] = useState(true);
   const [favourites, setFavourites] = useState([]);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -61,17 +78,36 @@ const Recommendations = () => {
 
   const isPersonalised = recs.type === 'personalised';
 
-  // Derive unique categories from the loaded book list
-  const bookCategories = [...new Set(recs.books.map(b => b.category).filter(Boolean))].sort();
+  // Resolve books for the active tab
+  const filterByTab = (books) => {
+    if (activeTab === 'all') return books;
+    if (activeTab.startsWith('cat:')) {
+      const cat = activeTab.slice(4);
+      return books.filter(b => b.category === cat);
+    }
+    if (activeTab.startsWith('course:')) {
+      const courseName = activeTab.slice(7);
+      const keywords = getCourseKeywords(courseName);
+      return books.filter(b => {
+        const text = `${b.title} ${b.category} ${b.description || ''}`.toLowerCase();
+        return keywords.some(kw => text.includes(kw));
+      });
+    }
+    return books;
+  };
 
-  // Client-side filter
+  // For popular-mode, build category tabs from the returned books
+  const popularCategories = !isPersonalised
+    ? [...new Set(recs.books.map(b => b.category).filter(Boolean))].sort()
+    : [];
+
+  // Client-side text search, then tab filter
   const q = search.trim().toLowerCase();
-  const displayBooks = recs.books.filter(book => {
-    const matchesSearch = !q || [book.title, book.author, book.isbn, book.category]
-      .some(field => field && field.toLowerCase().includes(q));
-    const matchesCategory = !categoryFilter || book.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  });
+  const searchFiltered = recs.books.filter(book =>
+    !q || [book.title, book.author, book.isbn, book.category]
+      .some(field => field && field.toLowerCase().includes(q))
+  );
+  const displayBooks = filterByTab(searchFiltered);
 
   return (
     <div className="page-wrapper fade-in">
@@ -90,46 +126,98 @@ const Recommendations = () => {
         <Link to="/books" className="btn btn-secondary">Browse All Books</Link>
       </div>
 
-      {/* Personalisation signals card */}
-      {isPersonalised && (recs.categories.length > 0 || recs.courses.length > 0) && (
-        <div className="card mb-6">
-          <div className="card-body" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {recs.courses.length > 0 && (
-              <div>
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '0.45rem' }}>
-                  🎓 Based on your enrolled courses:
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                  {recs.courses.map(course => (
-                    <span
-                      key={course}
-                      className="chip"
-                      style={{ background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: '0.8rem' }}
-                    >
-                      {course}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {recs.categories.length > 0 && (
-              <div>
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '0.45rem' }}>
-                  📂 Based on your reading history in:
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                  {recs.categories.map(cat => (
-                    <span
-                      key={cat}
-                      className="chip"
-                      style={{ background: 'var(--success)', color: '#fff', fontWeight: 600, fontSize: '0.8rem' }}
-                    >
-                      {cat}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+      {/* Tab filter — courses + history categories (personalised) or book categories (popular) */}
+      {(isPersonalised
+        ? recs.courses.length > 0 || recs.categories.length > 0
+        : popularCategories.length > 0) && (
+        <div className="card mb-4">
+          <div className="card-body" style={{ padding: '0.875rem 1.25rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+              {/* All tab */}
+              <button
+                onClick={() => setActiveTab('all')}
+                style={{
+                  padding: '0.35rem 0.9rem', borderRadius: 20,
+                  border: '2px solid', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700,
+                  transition: 'all 0.15s',
+                  borderColor: activeTab === 'all' ? 'var(--primary)' : 'var(--border)',
+                  background: activeTab === 'all' ? 'var(--primary)' : 'transparent',
+                  color: activeTab === 'all' ? '#fff' : 'var(--text-secondary)',
+                }}
+              >All</button>
+
+              {/* Course tabs */}
+              {isPersonalised && recs.courses.length > 0 && (
+                <>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0.25rem' }}>🎓 Courses:</span>
+                  {recs.courses.map(course => {
+                    const tabId = `course:${course}`;
+                    const isActive = activeTab === tabId;
+                    return (
+                      <button
+                        key={course}
+                        onClick={() => setActiveTab(isActive ? 'all' : tabId)}
+                        title={course}
+                        style={{
+                          padding: '0.35rem 0.9rem', borderRadius: 20,
+                          border: '2px solid', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                          transition: 'all 0.15s', maxWidth: 190,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          borderColor: isActive ? 'var(--primary)' : 'rgba(79,70,229,0.35)',
+                          background: isActive ? 'var(--primary)' : 'rgba(79,70,229,0.07)',
+                          color: isActive ? '#fff' : 'var(--primary)',
+                        }}
+                      >{getCourseLabel(course)}</button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Reading-history category tabs */}
+              {isPersonalised && recs.categories.length > 0 && (
+                <>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0.25rem' }}>📂 History:</span>
+                  {recs.categories.map(cat => {
+                    const tabId = `cat:${cat}`;
+                    const isActive = activeTab === tabId;
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => setActiveTab(isActive ? 'all' : tabId)}
+                        style={{
+                          padding: '0.35rem 0.9rem', borderRadius: 20,
+                          border: '2px solid', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                          transition: 'all 0.15s',
+                          borderColor: isActive ? 'var(--success)' : 'rgba(16,185,129,0.35)',
+                          background: isActive ? 'var(--success)' : 'rgba(16,185,129,0.07)',
+                          color: isActive ? '#fff' : 'var(--success)',
+                        }}
+                      >{cat}</button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Popular-mode: plain category tabs */}
+              {!isPersonalised && popularCategories.map(cat => {
+                const tabId = `cat:${cat}`;
+                const isActive = activeTab === tabId;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveTab(isActive ? 'all' : tabId)}
+                    style={{
+                      padding: '0.35rem 0.9rem', borderRadius: 20,
+                      border: '2px solid', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                      transition: 'all 0.15s',
+                      borderColor: isActive ? 'var(--primary)' : 'var(--border)',
+                      background: isActive ? 'var(--primary)' : 'transparent',
+                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >{cat}</button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -164,22 +252,15 @@ const Recommendations = () => {
                     >✕</button>
                   )}
                 </div>
-                <select
-                  className="filter-select"
-                  value={categoryFilter}
-                  onChange={e => setCategoryFilter(e.target.value)}
-                >
-                  <option value="">All Categories</option>
-                  {bookCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
               </div>
-              {(search || categoryFilter) && (
+              {(search || activeTab !== 'all') && (
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.6rem' }}>
                   Showing {displayBooks.length} of {recs.books.length} recommended books
-                  {categoryFilter && <> in <strong>{categoryFilter}</strong></>}
+                  {activeTab.startsWith('course:') && <> for <strong>{getCourseLabel(activeTab.slice(7))}</strong></>}
+                  {activeTab.startsWith('cat:') && <> in <strong>{activeTab.slice(4)}</strong></>}
                   {search && <> matching &ldquo;<strong>{search}</strong>&rdquo;</>}
                   &nbsp;&mdash;&nbsp;
-                  <button onClick={() => { setSearch(''); setCategoryFilter(''); }} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, fontWeight: 600 }}>Clear filters</button>
+                  <button onClick={() => { setSearch(''); setActiveTab('all'); }} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, fontWeight: 600 }}>Clear filters</button>
                 </p>
               )}
             </div>
@@ -188,7 +269,7 @@ const Recommendations = () => {
           {displayBooks.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">🔍</div>
-              <p>No recommended books match your search. <button onClick={() => { setSearch(''); setCategoryFilter(''); }} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, fontSize: 'inherit' }}>Clear filters</button></p>
+              <p>No recommended books match your search. <button onClick={() => { setSearch(''); setActiveTab('all'); }} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, fontSize: 'inherit' }}>Clear filters</button></p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1.25rem' }}>
