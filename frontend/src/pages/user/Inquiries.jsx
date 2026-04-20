@@ -20,6 +20,7 @@ const Inquiries = () => {
 
   useEffect(() => { fetchInquiries(); }, []);
 
+  //new validations for inquiries form
   const validate = () => {
     const errs = {};
     if (!form.subject.trim()) errs.subject = 'Subject is required';

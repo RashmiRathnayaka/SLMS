@@ -21,6 +21,7 @@ const InquiryManagement = () => {
     finally { setLoading(false); }
   };
 
+  
   useEffect(() => { fetchInquiries(); }, [filter]);
 
   const handleReply = async (id) => {
