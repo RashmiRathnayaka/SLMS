@@ -10,6 +10,8 @@ const InquiryManagement = () => {
   const [loading, setLoading] = useState(true);
   const [replyText, setReplyText] = useState('');
   const [activeId, setActiveId] = useState(null);
+  const [searchText, setSearchText] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
 
   const fetchInquiries = async () => {
     setLoading(true);
@@ -38,6 +40,28 @@ const InquiryManagement = () => {
     catch { toast.error('Failed'); }
   };
 
+  // Filter inquiries by search text
+  const filteredInquiries = inquiries.filter(inq => 
+    inq.subject.toLowerCase().includes(searchText.toLowerCase()) || 
+    inq.message.toLowerCase().includes(searchText.toLowerCase()) ||
+    inq.user?.name.toLowerCase().includes(searchText.toLowerCase()) ||
+    inq.user?.email.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  // Sort inquiries
+  const sortedInquiries = [...filteredInquiries].sort((a, b) => {
+    switch(sortOrder) {
+      case 'newest':
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      case 'oldest':
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      case 'name-az':
+        return (a.user?.name || '').localeCompare(b.user?.name || '');
+      default:
+        return 0;
+    }
+  });
+
   return (
     <div className="page-wrapper fade-in">
       <div className="page-header">
@@ -55,11 +79,54 @@ const InquiryManagement = () => {
         ))}
       </div>
 
-      {loading ? <div className="spinner" /> : inquiries.length === 0 ? (
-        <div className="empty-state"><div className="empty-state-icon">📧</div><p>No {filter} inquiries.</p></div>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+        <div style={{ flex: 1, position: 'relative' }}>
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search inquiries..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{
+              paddingLeft: '2.5rem',
+              fontSize: '0.95rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border-color)',
+              padding: '0.75rem 1rem'
+            }}
+          />
+          <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem' }}>
+            🔍
+          </span>
+        </div>
+        <select
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value)}
+          className="form-control"
+          style={{
+            width: 'auto',
+            minWidth: '180px',
+            fontSize: '0.95rem',
+            borderRadius: '0.5rem',
+            border: '1px solid var(--border-color)',
+            padding: '0.75rem 1rem',
+            cursor: 'pointer'
+          }}
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name-az">Name A-Z</option>
+        </select>
+      </div>
+
+      {loading ? <div className="spinner" /> : sortedInquiries.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📧</div>
+          <p>{searchText ? `No inquiries match "${searchText}"` : `No ${filter} inquiries.`}</p>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {inquiries.map(inq => (
+          {sortedInquiries.map(inq => (
             <div key={inq._id} className="card" style={{ borderLeft: `4px solid ${inq.status === 'open' ? 'var(--warning)' : inq.status === 'replied' ? 'var(--success)' : 'var(--gray-300)'}` }}>
               <div className="card-body">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
