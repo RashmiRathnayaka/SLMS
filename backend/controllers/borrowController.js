@@ -2,6 +2,7 @@ const BorrowRequest = require('../models/BorrowRequest');
 const Book = require('../models/Book');
 const WaitingList = require('../models/WaitingList');
 const { notifyNext } = require('./waitingController');
+const { ensureTrendingWeek, calculateTrendingScore } = require('./bookController');
 
 // @desc    Request to borrow a book
 // @route   POST /api/borrows
@@ -78,7 +79,30 @@ const approveBorrow = async (req, res) => {
     if (req.body.staffNote) request.staffNote = req.body.staffNote;
     await request.save();
 
-    await Book.findByIdAndUpdate(request.book._id, { $inc: { availableCopies: -1, borrowedCount: 1 } });
+    const { weekStart, weekEnd } = await ensureTrendingWeek();
+    const updatedBook = await Book.findByIdAndUpdate(
+      request.book._id,
+      {
+        $inc: { availableCopies: -1, borrowedCount: 1, weeklyBorrowCount: 1 },
+        $set: { trendingWindowStart: weekStart, trendingWindowEnd: weekEnd },
+      },
+      { new: true, select: 'weeklyBorrowCount favoriteCount' }
+    ).lean();
+
+    if (updatedBook) {
+      await Book.updateOne(
+        { _id: request.book._id },
+        {
+          $set: {
+            trendingScore: calculateTrendingScore(
+              Number(updatedBook.weeklyBorrowCount) || 0,
+              Number(updatedBook.favoriteCount) || 0
+            ),
+          },
+        }
+      );
+    }
+
     res.json(request);
   } catch (err) {
     res.status(500).json({ message: err.message });

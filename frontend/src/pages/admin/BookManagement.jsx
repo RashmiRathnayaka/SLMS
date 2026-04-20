@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../../api/axios';
 import { toast } from 'react-toastify';
 
-const BOOK_CATEGORIES = ['Management', 'Engineering', 'Mathematics', 'Computer Science', 'IT'];
+const BOOK_CATEGORIES = ['Computing', 'Business', 'Engineering', 'Humanities and Sciences', 'Architecture', 'Other'];
 
 const BookManagement = () => {
   const [books, setBooks] = useState([]);
@@ -89,7 +89,8 @@ const BookManagement = () => {
     const fd = new FormData(); fd.append('file', csvFile);
     try {
       const { data } = await api.post('/books/import/csv', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      toast.success(`Imported ${data.imported} books. Errors: ${data.errors.length}`);
+      const firstError = data.errors?.[0]?.message ? ` First error: ${data.errors[0].message}` : '';
+      toast.success(`Imported ${data.imported} books. Errors: ${data.errors.length}.${firstError}`);
       setCsvFile(null); fetchBooks();
     } catch (err) { toast.error(err.response?.data?.message || 'Import failed'); }
   };
@@ -114,7 +115,7 @@ const BookManagement = () => {
       <div className="search-bar mb-6">
         <div className="search-input-wrap" style={{ flex: 1 }}>
           <span className="search-icon">🔍</span>
-          <input className="search-input" placeholder="Search by title, author or ISBN / course code..." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && fetchBooks()} />
+          <input className="search-input" placeholder="Search by title, author or course code..." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && fetchBooks()} />
         </div>
         <select className="filter-select" value={category} onChange={e => setCategory(e.target.value)}>
           <option value="">All Categories</option>
@@ -182,7 +183,7 @@ const BookManagement = () => {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Course Code</label>
-                    <input className={`form-control${errors.isbn ? ' is-invalid' : ''}`} value={form.isbn} onChange={e => { setForm({ ...form, isbn: e.target.value }); if (errors.isbn) setErrors(p => ({ ...p, isbn: '' })); }} placeholder="e.g. CS101, BM305" />
+                    <input className={`form-control${errors.isbn ? ' is-invalid' : ''}`} value={form.isbn} onChange={e => { setForm({ ...form, isbn: e.target.value }); if (errors.isbn) setErrors(p => ({ ...p, isbn: '' })); }} placeholder="IT1010 , BM1020" />
                     {errors.isbn && <span className="form-error">{errors.isbn}</span>}
                   </div>
                   <div className="form-group">

@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
+const { getTrendingBooks } = require('./controllers/bookController');
 
 connectDB();
 
@@ -14,6 +15,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Serve static uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Explicit static endpoint to avoid dynamic /:id route collisions in router.
+app.get('/api/books/trending', getTrendingBooks);
+app.get('/api/books/meta/trending', getTrendingBooks);
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -41,6 +46,21 @@ app.listen(PORT, () => {
   // Auto-expire overdue waiting list claims every 15 minutes
   const WaitingList = require('./models/WaitingList');
   const { notifyNext } = require('./controllers/waitingController');
+  const { refreshWeeklyTrendingStats } = require('./controllers/bookController');
+
+  // Precompute trending stats on startup, then refresh once daily.
+  const refreshTrending = async () => {
+    try {
+      const result = await refreshWeeklyTrendingStats();
+      console.log(`[Trending cron] Updated ${result.updated} books for week ${result.weekStart.toISOString()} - ${result.weekEnd.toISOString()}`);
+    } catch (e) {
+      console.error('[Trending cron] Error:', e.message);
+    }
+  };
+
+  refreshTrending();
+  setInterval(refreshTrending, 24 * 60 * 60 * 1000);
+
   setInterval(async () => {
     try {
       const overdue = await WaitingList.find({
