@@ -10,6 +10,8 @@ const BorrowRequests = () => {
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState('');
   const [activeId, setActiveId] = useState(null);
+  const [searchText, setSearchText] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
 
   const fetchBorrows = async () => {
     setLoading(true);
@@ -31,7 +33,27 @@ const BorrowRequests = () => {
     } catch (err) { toast.error(err.response?.data?.message || 'Action failed'); }
   };
 
-  
+  // Filter borrows by search text
+  const filteredBorrows = borrows.filter(b =>
+    b.book?.title.toLowerCase().includes(searchText.toLowerCase()) ||
+    b.book?.author.toLowerCase().includes(searchText.toLowerCase()) ||
+    b.user?.name.toLowerCase().includes(searchText.toLowerCase()) ||
+    b.user?.email.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  // Sort borrows
+  const sortedBorrows = [...filteredBorrows].sort((a, b) => {
+    switch(sortOrder) {
+      case 'newest':
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      case 'oldest':
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      case 'name-az':
+        return (a.user?.name || '').localeCompare(b.user?.name || '');
+      default:
+        return 0;
+    }
+  });
   return (
     <div className="page-wrapper fade-in">
       <div className="page-header">
@@ -49,11 +71,59 @@ const BorrowRequests = () => {
         ))}
       </div>
 
-      {loading ? <div className="spinner" /> : borrows.length === 0 ? (
-        <div className="empty-state"><div className="empty-state-icon">📋</div><p>No {filter} requests found.</p></div>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+        <div style={{ flex: 1, position: 'relative' }}>
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search books..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{
+              fontSize: '0.95rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border-color)',
+              padding: '0.75rem 1rem 0.75rem 2.75rem'
+            }}
+          />
+          <span style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', pointerEvents: 'none' }}>
+            🔍
+          </span>
+        </div>
+        <div style={{ position: 'relative' }}>
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+            className="form-control"
+            style={{
+              width: 'auto',
+              minWidth: '180px',
+              fontSize: '0.95rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border-color)',
+              padding: '0.75rem 2.5rem 0.75rem 1rem',
+              cursor: 'pointer',
+              appearance: 'none'
+            }}
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name-az">Name A-Z</option>
+          </select>
+          <span style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.9rem', pointerEvents: 'none', color: 'var(--text-secondary)' }}>
+            ▼
+          </span>
+        </div>
+      </div>
+
+      {loading ? <div className="spinner" /> : sortedBorrows.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📋</div>
+          <p>{searchText ? `No borrow requests match "${searchText}"` : `No ${filter} requests found.`}</p>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {borrows.map(b => (
+          {sortedBorrows.map(b => (
             <div key={b._id} className="card">
               <div className="card-body">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
