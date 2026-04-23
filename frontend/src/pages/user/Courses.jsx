@@ -2,6 +2,20 @@
 import api from '../../api/axios';
 import { toast } from 'react-toastify';
 
+// ── Recommendation filter helpers (mirrors Recommendations.jsx) ──────
+const STOP_WORDS = new Set(['of', 'in', 'and', 'the', 'a', 'an', 'bachelor', 'master', 'hons', 'arts']);
+const getCourseKeywords = (courseName) =>
+  [...new Set(
+    courseName.toLowerCase()
+      .replace(/[()&]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 1 && !STOP_WORDS.has(w))
+  )];
+const getCourseLabel = (courseName) => {
+  const match = courseName.match(/ in (.+)$/i);
+  return match ? match[1] : courseName;
+};
+
 const Courses = ({ defaultTab = 'courses' }) => {
   const [courses, setCourses] = useState([]);
   const [enrolled, setEnrolled] = useState([]);
@@ -13,6 +27,8 @@ const Courses = ({ defaultTab = 'courses' }) => {
   const [enrollKey, setEnrollKey] = useState('');
   const [enrollKeyError, setEnrollKeyError] = useState('');
   const [showEnrollKey, setShowEnrollKey] = useState(false);
+  const [search, setSearch] = useState('');
+  const [recActiveTab, setRecActiveTab] = useState('all');
 
   const fetchData = async () => {
     setLoading(true);
@@ -67,6 +83,46 @@ const Courses = ({ defaultTab = 'courses' }) => {
       toast.error(err.response?.data?.message || 'Failed');
     }
   };
+
+  // Reset search AND rec tab when switching tabs
+  const handleTabChange = (t) => { setTab(t); setSearch(''); setRecActiveTab('all'); };
+
+  // Filtered data per tab
+  const q = search.trim().toLowerCase();
+  const filteredCourses = courses.filter(c =>
+    !q || [c.name, c.code, c.department, c.description].some(f => f && f.toLowerCase().includes(q))
+  );
+  const filteredEnrollments = enrollmentData.filter(en => {
+    const c = en.course;
+    return !c || !q || [c.name, c.code, c.department, c.description].some(f => f && f.toLowerCase().includes(q));
+  });
+  const filteredRecs = recommendations.filter(b =>
+    !q || [b.title, b.author, b.category].some(f => f && f.toLowerCase().includes(q))
+  );
+
+  // Recommendation tab filter (by enrolled course or book category)
+  const filterRecsByTab = (books) => {
+    if (recActiveTab === 'all') return books;
+    if (recActiveTab.startsWith('cat:')) {
+      const cat = recActiveTab.slice(4);
+      return books.filter(b => b.category === cat);
+    }
+    if (recActiveTab.startsWith('course:')) {
+      const courseName = recActiveTab.slice(7);
+      const keywords = getCourseKeywords(courseName);
+      return books.filter(b => {
+        const text = `${b.title} ${b.category} ${b.description || ''}`.toLowerCase();
+        return keywords.some(kw => text.includes(kw));
+      });
+    }
+    return books;
+  };
+  const recDisplayBooks = filterRecsByTab(filteredRecs);
+
+  // Enrolled course names for pills
+  const enrolledCourseNames = enrollmentData.map(en => en.course?.name).filter(Boolean);
+  // Book categories from recommendations (for popular-style fallback when no enrollments)
+  const recBookCategories = [...new Set(recommendations.map(b => b.category).filter(Boolean))].sort();
 
   const handleBorrow = async (bookId) => {
     try {
@@ -218,16 +274,52 @@ const Courses = ({ defaultTab = 'courses' }) => {
 
       <div className="filter-tabs mb-6">
         {[['courses','📚 All Courses'],['my-enrollments',`📋 My Enrollments${enrolled.length > 0 ? ` (${enrolled.length})` : ''}`],['recommendations','💡 Recommended Books']].map(([t,label]) => (
-          <button key={t} className={`filter-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>{label}</button>
+          <button key={t} className={`filter-tab${tab === t ? ' active' : ''}`} onClick={() => handleTabChange(t)}>{label}</button>
         ))}
       </div>
 
+      {/* Search bar */}
+      <div className="card mb-4">
+        <div className="card-body" style={{ padding: '0.75rem 1rem' }}>
+          <div className="search-bar">
+            <div className="search-input-wrap">
+              <span className="search-icon">🔍</span>
+              <input
+                className="search-input"
+                placeholder={
+                  tab === 'courses' ? 'Search by name, code or department...'
+                  : tab === 'my-enrollments' ? 'Search enrolled courses...'
+                  : 'Search by title, author or category...'
+                }
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem', padding: '0 0.5rem' }}
+                  title="Clear search"
+                >✕</button>
+              )}
+            </div>
+          </div>
+          {search && (
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+              {tab === 'courses' && `${filteredCourses.length} of ${courses.length} courses`}
+              {tab === 'my-enrollments' && `${filteredEnrollments.length} of ${enrollmentData.length} enrollments`}
+              {tab === 'recommendations' && `${filteredRecs.length} of ${recommendations.length} books`}
+              {' '}matching &ldquo;<strong>{search}</strong>&rdquo;
+            </p>
+          )}
+        </div>
+      </div>
+
       {loading ? <div className="spinner" /> : tab === 'courses' ? (
-        courses.length === 0 ? (
-          <div className="empty-state"><div className="empty-state-icon">🎓</div><p>No courses available.</p></div>
+        filteredCourses.length === 0 ? (
+          <div className="empty-state"><div className="empty-state-icon">🎓</div><p>{search ? 'No courses match your search.' : 'No courses available.'}</p></div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: '1.5rem' }}>
-            {courses.map(course => {
+            {filteredCourses.map(course => {
               const isEnrolled = enrolled.includes(course._id);
               return (
                 <div
@@ -264,11 +356,13 @@ const Courses = ({ defaultTab = 'courses' }) => {
           <div className="empty-state">
             <div className="empty-state-icon">📋</div>
             <p>You haven't enrolled in any courses yet.</p>
-            <button className="btn btn-primary mt-3" onClick={() => setTab('courses')}>Browse Courses</button>
+            <button className="btn btn-primary mt-3" onClick={() => handleTabChange('courses')}>Browse Courses</button>
           </div>
+        ) : filteredEnrollments.length === 0 ? (
+          <div className="empty-state"><div className="empty-state-icon">🔍</div><p>No enrollments match your search.</p></div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {enrollmentData.map(en => {
+            {filteredEnrollments.map(en => {
               const course = en.course;
               if (!course) return null;
               const enrolledDate = new Date(en.enrolledAt || en.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -317,12 +411,101 @@ const Courses = ({ defaultTab = 'courses' }) => {
         )
       ) : (
         <>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>📖 Personalized suggestions based on your enrolled courses and reading history.</p>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>📖 Personalized suggestions based on your enrolled courses and reading history.</p>
+
+          {/* Course / Category filter pills */}
+          {(enrolledCourseNames.length > 0 || recBookCategories.length > 0) && (
+            <div className="card mb-4">
+              <div className="card-body" style={{ padding: '0.875rem 1.25rem' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+                  {/* All pill */}
+                  <button
+                    onClick={() => setRecActiveTab('all')}
+                    style={{
+                      padding: '0.35rem 0.9rem', borderRadius: 20,
+                      border: '2px solid', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700,
+                      transition: 'all 0.15s',
+                      borderColor: recActiveTab === 'all' ? 'var(--primary)' : 'var(--border)',
+                      background: recActiveTab === 'all' ? 'var(--primary)' : 'transparent',
+                      color: recActiveTab === 'all' ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >All</button>
+
+                  {/* Enrolled course pills */}
+                  {enrolledCourseNames.length > 0 && (
+                    <>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0.25rem' }}>🎓 Courses:</span>
+                      {enrolledCourseNames.map(course => {
+                        const tabId = `course:${course}`;
+                        const isActive = recActiveTab === tabId;
+                        return (
+                          <button
+                            key={course}
+                            onClick={() => setRecActiveTab(isActive ? 'all' : tabId)}
+                            title={course}
+                            style={{
+                              padding: '0.35rem 0.9rem', borderRadius: 20,
+                              border: '2px solid', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                              transition: 'all 0.15s', maxWidth: 190,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              borderColor: isActive ? 'var(--primary)' : 'rgba(79,70,229,0.35)',
+                              background: isActive ? 'var(--primary)' : 'rgba(79,70,229,0.07)',
+                              color: isActive ? '#fff' : 'var(--primary)',
+                            }}
+                          >{getCourseLabel(course)}</button>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {/* Book category pills (when no enrollments) */}
+                  {enrolledCourseNames.length === 0 && recBookCategories.map(cat => {
+                    const tabId = `cat:${cat}`;
+                    const isActive = recActiveTab === tabId;
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => setRecActiveTab(isActive ? 'all' : tabId)}
+                        style={{
+                          padding: '0.35rem 0.9rem', borderRadius: 20,
+                          border: '2px solid', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                          transition: 'all 0.15s',
+                          borderColor: isActive ? 'var(--primary)' : 'var(--border)',
+                          background: isActive ? 'var(--primary)' : 'transparent',
+                          color: isActive ? '#fff' : 'var(--text-secondary)',
+                        }}
+                      >{cat}</button>
+                    );
+                  })}
+                </div>
+
+                {(search || recActiveTab !== 'all') && (
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                    Showing {recDisplayBooks.length} of {recommendations.length} books
+                    {recActiveTab.startsWith('course:') && <> for <strong>{getCourseLabel(recActiveTab.slice(7))}</strong></>}
+                    {recActiveTab.startsWith('cat:') && <> in <strong>{recActiveTab.slice(4)}</strong></>}
+                    {search && <> matching &ldquo;<strong>{search}</strong>&rdquo;</>}
+                    &nbsp;&mdash;&nbsp;
+                    <button
+                      onClick={() => { setSearch(''); setRecActiveTab('all'); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, fontWeight: 600 }}
+                    >Clear filters</button>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {recommendations.length === 0 ? (
             <div className="empty-state"><div className="empty-state-icon">💡</div><p>Enroll in courses to get personalized book suggestions.</p></div>
+          ) : recDisplayBooks.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">🔍</div>
+              <p>No books match your filters. <button onClick={() => { setSearch(''); setRecActiveTab('all'); }} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, fontSize: 'inherit' }}>Clear filters</button></p>
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px,1fr))', gap: '1.5rem' }}>
-              {recommendations.map(book => (
+              {recDisplayBooks.map(book => (
                 <div key={book._id} className="card" style={{ overflow: 'hidden' }}>
                   <div style={{ height: 150, background: 'var(--primary-bg)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {book.coverImage ? <img src={book.coverImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '3rem' }}>📖</span>}
