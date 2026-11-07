@@ -2,6 +2,41 @@
 
 A full-stack **MERN** (MongoDB, Express, React, Node.js) web application for managing a university library. Students can search and borrow books, join waiting lists, read e-books online, compete on a weekly reading leaderboard and get course-based recommendations, while staff and admins manage the collection, requests, users and analytics through role-based dashboards.
 
+## 📸 Application Screenshots
+
+The following screenshots showcase the user interface and main functionalities of the Smart Library Management System.
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="screenshots/1-home.png" width="400" alt="Home Page"><br>
+      <b>Home Page</b>
+    </td>
+    <td align="center">
+      <img src="screenshots/2-login.png" width="400" alt="Login Page"><br>
+      <b>Login Page</b>
+    </td>
+  </tr>
+      <td align="center">
+      <img src="screenshots/4-ebooks-student.png" width="400" alt="e-Book Page"><br>
+      <b>e-Book Page</b>
+    </td>
+    <td align="center" colspan="2">
+      <img src="screenshots/5-leaderboard.png" width="400" alt="Weekly Reader's Leaderboard"><br>
+      <b>Weekly Reader's Leaderboard</b>
+    </td>
+    <tr>
+      <td align="center">
+      <img src="screenshots/3-ebook-managementAdmin.png" width="400" alt="Admin-e-Book management"><br>
+      <b>Admin-e-Book management</b>
+    </td>
+      <td align="center">
+      <img src="screenshots/3-ebook-analyticsAdmin.png" width="400" alt="Admin-e-Book analysis"><br>
+      <b>Admin-e-Book analysis</b>
+    </td>
+  </tr>
+</table>
+
 ---
 
 ## ✨ Features
